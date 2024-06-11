@@ -6,6 +6,7 @@ license = "MIT"
 description = "A library crate for validation of Cloudflare Zero Trust JWTs"
 repository = "https://github.com/jacobneiltaylor/rust-cfzt-validator"
 readme = "README.md"
+include = ["src/*.rs"]
 
 [lib]
 name = "rust_cfzt_validator"
