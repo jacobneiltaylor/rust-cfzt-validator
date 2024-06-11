@@ -1,0 +1,10 @@
+ingress:
+  - hostname: rust-cfzt-validator-integration.molten.dev
+    service: http://httpbin:80
+#    originRequest:
+#      access:
+#        required: true
+#        teamName: molten
+#        audTags:
+#          - 41f1d879c797d912d9bd80710db3dce92d30602a2dcbdf7bab33913071c44bd4
+  - service: http_status:404

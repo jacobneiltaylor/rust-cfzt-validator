@@ -1,0 +1,34 @@
+{
+    "keys": [
+        {
+            "kid": "foo",
+            "kty": "RSA",
+            "alg": "RS256",
+            "use": "sig",
+            "e": "bar",
+            "n": "bar"
+        },
+        {
+            "kid": "baz",
+            "kty": "RSA",
+            "alg": "RS256",
+            "use": "sig",
+            "e": "bin",
+            "n": "bin"
+        }
+    ],
+    "public_cert": {
+        "kid": "foo",
+        "cert": "bar"
+    },
+    "public_certs": [
+        {
+            "kid": "foo",
+            "cert": "bar"
+        },
+        {
+            "kid": "baz",
+            "cert": "bin"
+        }
+    ]
+}
