@@ -17,7 +17,7 @@ pub struct ApplicationToken {
 }
 
 impl ApplicationToken {
-    // Consumes a `TokenData<Value>`` emitted by a successful `Validator.validate_token()`
+    // Consumes a `TokenData<Value>` emitted by a successful `Validator.validate_token()`
     // and returns an ApplicationToken struct.
     pub fn from_token_data(token_data: DecodedToken) -> UnpackResult<Self> {
         let claims = unpack::as_object(&token_data.claims)?;
