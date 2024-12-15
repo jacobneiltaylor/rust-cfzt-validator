@@ -1,6 +1,6 @@
 [package]
 name = "rust-cfzt-validator"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "A library crate for validation of Cloudflare Zero Trust JWTs"

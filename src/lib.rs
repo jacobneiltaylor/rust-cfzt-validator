@@ -46,7 +46,7 @@ fn get_kid(header: jsonwebtoken::Header) -> ValidationResult<String> {
 }
 
 /// The interface for a component capable of validating a CFZT JWT.
-pub trait Validator {
+pub trait Validator: Sync + Send {
     /// Takes a JWT, team name, and a mutable set of constraints 
     /// and validates a JWT accordingly.
     fn validate_token(
