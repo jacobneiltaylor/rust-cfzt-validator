@@ -50,11 +50,15 @@ pub trait Validator: Sync + Send {
     /// Takes a JWT, team name, and a mutable set of constraints 
     /// and validates a JWT accordingly.
     fn validate_token(
-        &mut self,
+        &self,
         token: &str,
         team_name: &str,
         constraints: &mut Constraints,
     ) -> ValidationResult<DecodedToken>;
+
+    // A hook to trigger the validator to perform syncronisation
+    // with the Cloudflare Access API
+    fn sync(&self) -> StdResult<bool>;
 }
 
 /// Represents a Validator implementation capable of 
@@ -94,7 +98,7 @@ impl TeamValidator {
     /// Attempts to syncronise the TeamValidator's cached keys with
     /// a provided TeamKeys struct. Returns a bool signalling
     /// if an update was necessary.
-    pub fn update_keys(&mut self, team_keys: api::TeamKeys) -> bool {
+    pub fn update_keys(&self, team_keys: api::TeamKeys) -> bool {
         let key_ids: HashSet<String> = team_keys.keys.keys().cloned().collect();
         let rotate = self.cache.is_rotation_needed(key_ids);
 
@@ -105,20 +109,12 @@ impl TeamValidator {
 
         rotate
     }
-
-    /// Attempts to syncronise the TeamValidator's cached keys with
-    /// those available via the Cloudflare API. Returns a wrapped bool signalling
-    /// if an update was necessary.
-    pub fn sync(&mut self) -> StdResult<bool> {
-        let team_keys = api::TeamKeys::from_team_name(&self.team_name)?;
-        Ok(self.update_keys(team_keys))
-    }
 }
 
 impl Validator for TeamValidator {
     /// Attempts to validate a token against the CFZT Team associated with the TeamValidator.
     fn validate_token(
-        &mut self,
+        &self,
         token: &str,
         team_name: &str,
         constraints: &mut Constraints,
@@ -133,13 +129,21 @@ impl Validator for TeamValidator {
         let header = decode_token_header(token)?;
         let key_id = get_kid(header)?;
 
-        match self.cache.get_key(&key_id) {
+        match self.cache.get_decoding_key(&key_id) {
             Some(key) => {
                 constraints.set_audience(&[&self.audience]);
-                Ok(decode_token(token, key, &constraints)?)
+                Ok(decode_token(token, &key, &constraints)?)
             }
             None => Err(ValidationError::no_kid_in_cache(&key_id)),
         }
+    }
+
+    /// Attempts to syncronise the TeamValidator's cached keys with
+    /// those available via the Cloudflare API. Returns a wrapped bool signalling
+    /// if an update was necessary.
+    fn sync(&self) -> StdResult<bool> {
+        let team_keys = api::TeamKeys::from_team_name(&self.team_name)?;
+        Ok(self.update_keys(team_keys))
     }
 }
 
@@ -165,31 +169,45 @@ impl MultiTeamValidator {
         Ok(())
     }
 
-    fn get_team_validator(&mut self, team_name: &str) -> ValidationResult<&mut TeamValidator> {
+    fn get_team_validator(&self, team_name: &str) -> ValidationResult<&TeamValidator> {
         self.teams
-            .get_mut(team_name)
+            .get(team_name)
             .ok_or(ValidationError::unknown_team_name(team_name))
     }
 
     /// Attempts to syncronise a team added to the MultiTeamValidator with
     /// those available via the CF API. Returns a wrapped bool signalling
     /// if an update was necessary.
-    pub fn sync_team(&mut self, team_name: &str) -> StdResult<bool> {
+    pub fn sync_team(&self, team_name: &str) -> StdResult<bool> {
         let team = self.get_team_validator(team_name)?;
         team.sync()
+    }
+
+    pub fn get_team_names(&self) -> Vec<String> {
+        self.teams.keys().into_iter().map(|x| x.to_string()).collect()
     }
 }
 
 impl Validator for MultiTeamValidator {
     /// Attempts to validate a token against a CFZT Team associated with the MultiTeamValidator.
     fn validate_token(
-        &mut self,
+        &self,
         token: &str,
         team_name: &str,
         constraints: &mut Constraints,
     ) -> ValidationResult<DecodedToken> {
         let team = self.get_team_validator(team_name)?;
         team.validate_token(token, team_name, constraints)
+    }
+
+    fn sync(&self) -> StdResult<bool> {
+        let mut retval = false;
+
+        for team_name in self.teams.keys().into_iter() {
+            retval = self.sync_team(team_name)? || retval
+        }
+
+        Ok(retval)
     }
 }
 
@@ -224,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_team_validator_sync() {
-        let mut validator = get_team_validator();
+        let validator = get_team_validator();
         let result = validator.sync();
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -232,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_multi_team_validator_team_sync() {
-        let mut validator = get_multi_team_validator();
+        let validator = get_multi_team_validator();
         let result = validator.sync_team(TEAM_NAME);
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -240,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_team_validator_validate_token() {
-        let mut validator = get_team_validator();
+        let validator = get_team_validator();
         let mut constraints = get_constraints();
         let result = validator.validate_token(JWT, TEAM_NAME, &mut constraints);
         assert!(result.is_ok());
@@ -248,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_multi_team_validator_validate_token() {
-        let mut validator = get_multi_team_validator();
+        let validator = get_multi_team_validator();
         let mut constraints = get_constraints();
         let result = validator.validate_token(JWT, TEAM_NAME, &mut constraints);
         assert!(result.is_ok());

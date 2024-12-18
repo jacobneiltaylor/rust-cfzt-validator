@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_application_token() {
-        let mut validator = get_validator();
+        let validator = get_validator();
 
         let mut constraints = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
         constraints.validate_nbf = false;

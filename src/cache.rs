@@ -3,7 +3,7 @@ use jsonwebtoken::{
     jwk::{self, JwkSet},
     DecodingKey,
 };
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, mem::replace, sync::RwLock};
 
 fn assert_key(key_id: &str, keymap: &keys::AccessKeyMap) {
     if !keymap.contains_key(key_id) {
@@ -31,39 +31,80 @@ fn build_jwk_set(keymap: &keys::AccessKeyMap) -> jwk::JwkSet {
     JwkSet { keys: jwks }
 }
 
+struct KeySet {
+    kid_set: HashSet<String>,
+    key_set: jwk::JwkSet,
+}
+
+impl KeySet {
+    pub fn new(keymap: keys::AccessKeyMap) -> Self {
+        Self {
+            kid_set: build_kid_set(&keymap),
+            key_set: build_jwk_set(&keymap),
+        }
+    }
+
+    pub fn contains(&self, key_id: &str) -> bool {
+        self.kid_set.contains(key_id)
+    }
+
+    pub fn find(&self, key_id: &str) -> Option<&jwk::Jwk> {
+        self.key_set.find(key_id)
+    }
+
+    pub fn get_key_ids(&self) -> HashSet<String> {
+        self.kid_set.clone()
+    }
+}
+
+
 /// Maintains the autoritative list of currently trusted JWKs for a single team
 /// and caches the DecodingKey structs derived from them.
 /// Needs to be periodically seeded with latest keys by some external trigger
 /// invoking the rotate_keys() method.
 pub struct Cache {
-    pub latest_key_id: String,
-    kid_set: HashSet<String>,
-    key_set: jwk::JwkSet,
-    decoding_keys: HashMap<String, DecodingKey>,
+    latest_key_id: RwLock<String>,
+    key_set: RwLock<KeySet>,
+    decoding_keys: RwLock<HashMap<String, DecodingKey>>,
 }
 
 impl Cache {
-    fn flush_stale_decoding_keys(&mut self) {
+    fn contains_key(&self, key_id: &str) -> bool {
+        self.key_set.read().unwrap().contains(&key_id)
+    }
+
+    fn is_decoding_key_cached(&self, key_id: &str) -> bool {
+        self.decoding_keys.read().unwrap().contains_key(key_id)
+    }
+
+    fn get_key(&self, key_id: &str) -> Option<jwk::Jwk> {
+        Some(self.key_set.read().unwrap().find(key_id)?.clone())
+    }
+
+    fn flush_stale_decoding_keys(&self) {
+        // Acquire write lock
+        let mut decoding_keys = self.decoding_keys.write().unwrap();
+
         // Take a snapshot of current keys
-        let cached_key_ids: Vec<String> = self
-            .decoding_keys
+        let cached_key_ids: Vec<String> = decoding_keys
             .keys()
             .map(|key_id| key_id.to_owned())
             .collect();
 
         // Identify stale entries in decoding key cache and purge them
         for key_id in cached_key_ids {
-            if !self.kid_set.contains(&key_id) {
-                self.decoding_keys.remove(&key_id);
+            if !self.contains_key(&key_id) {
+                decoding_keys.remove(&key_id);
             }
         }
     }
 
-    fn build_decoding_key(&mut self, key_id: &str) {
-        if !self.decoding_keys.contains_key(key_id) {
-            let jwk = self.key_set.find(key_id).unwrap();
-            let decoding_key = DecodingKey::from_jwk(jwk).unwrap();
-            self.decoding_keys.insert(key_id.to_string(), decoding_key);
+    fn build_decoding_key(&self, key_id: &str) {
+        if !self.is_decoding_key_cached(key_id) {
+            let mut decoding_keys = self.decoding_keys.write().unwrap();
+            let jwk = self.get_key(key_id).unwrap();
+            let decoding_key = DecodingKey::from_jwk(&jwk).unwrap();
+            decoding_keys.insert(key_id.to_string(), decoding_key);
         }
     }
 
@@ -72,11 +113,10 @@ impl Cache {
     pub fn new(latest_key_id: &str, keymap: keys::AccessKeyMap) -> Self {
         assert_key(latest_key_id, &keymap);
 
-        let mut this = Cache {
-            latest_key_id: latest_key_id.to_string(),
-            kid_set: build_kid_set(&keymap),
-            key_set: build_jwk_set(&keymap),
-            decoding_keys: HashMap::new(),
+        let this = Cache {
+            latest_key_id: RwLock::new(latest_key_id.to_string()),
+            key_set: RwLock::new(KeySet::new(keymap)),
+            decoding_keys: RwLock::new(HashMap::new()),
         };
 
         // Prewarm the cache with the latest key
@@ -92,13 +132,17 @@ impl Cache {
         diff.len() > 0
     }
 
+    /// Retrieve the latest key id
+    pub fn get_latest_key_id(&self) -> String {
+        self.latest_key_id.read().unwrap().clone()
+    }
+
     /// Updates the Cache with a new latest key ID and map of AccessKey structs.
-    pub fn rotate_keys(&mut self, latest_key_id: &str, latest_keymap: keys::AccessKeyMap) {
+    pub fn rotate_keys(&self, latest_key_id: &str, latest_keymap: keys::AccessKeyMap) {
         assert_key(latest_key_id, &latest_keymap);
 
-        self.latest_key_id = latest_key_id.to_string();
-        self.kid_set = build_kid_set(&latest_keymap);
-        self.key_set = build_jwk_set(&latest_keymap);
+        let _ = replace(&mut *self.latest_key_id.write().unwrap(), latest_key_id.to_string());
+        let _ = replace(&mut *self.key_set.write().unwrap(), KeySet::new(latest_keymap));
 
         self.flush_stale_decoding_keys();
         self.build_decoding_key(latest_key_id);
@@ -106,18 +150,16 @@ impl Cache {
 
     /// Get the current list of trusted key IDs.
     pub fn get_key_ids(&self) -> HashSet<String> {
-        return self.kid_set.clone();
+        self.key_set.read().unwrap().get_key_ids()
     }
 
     /// Attempt to retrieve a specific key as a DecodingKey struct.
-    pub fn get_key(&mut self, key_id: &str) -> Option<&DecodingKey> {
-        match self.key_set.find(key_id) {
-            Some(_) => {
+    pub fn get_decoding_key(&self, key_id: &str) -> Option<DecodingKey> {
+        if self.contains_key(&key_id) {
                 self.build_decoding_key(key_id);
-                return self.decoding_keys.get(key_id);
-            }
-            None => None,
+                return Some(self.decoding_keys.read().unwrap().get(key_id)?.to_owned());
         }
+        None
     }
 }
 
@@ -158,8 +200,8 @@ mod tests {
         Cache::new(&latest_key_id, keymap)
     }
 
-    fn test_cache(mut cache: Cache, key_id: &str, token: &str) {
-        assert_eq!(cache.latest_key_id, key_id);
+    fn test_cache(cache: Cache, key_id: &str, token: &str) {
+        assert_eq!(cache.get_latest_key_id(), key_id);
         assert!(cache.get_key_ids().contains(key_id));
 
         let header = jsonwebtoken::decode_header(token).unwrap();
@@ -169,8 +211,9 @@ mod tests {
 
         assert_eq!(header_kid, key_id);
 
+        let decoding_key = cache.get_decoding_key(&header_kid).unwrap();
         let result =
-            jsonwebtoken::decode::<Claims>(token, cache.get_key(&header_kid).unwrap(), &validation);
+            jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation);
 
         assert!(result.is_ok());
 
@@ -189,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_cache_rotation() {
-        let mut cache = get_cache();
+        let cache = get_cache();
         let key_ids = cache.get_key_ids();
         assert!(!cache.is_rotation_needed(key_ids));
         let (latest_key_id, latest_keymap) = load_mock_data(SAMPLE_ROTATION_PAYLOAD);
