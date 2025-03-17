@@ -66,33 +66,33 @@ pub trait Validator: Sync + Send {
 pub struct TeamValidator {
     pub(crate) team_name: String,
     cache: cache::Cache,
-    audience: String,
+    audiences: Vec<String>,
 }
 
 
 impl TeamValidator {
     /// Initialises a TeamValidator from a team name, Cache struct and an audience.
-    pub fn new(team_name: &str, cache: Cache, audience: &str) -> Self {
+    pub fn new(team_name: &str, cache: Cache, audiences: Vec<String>) -> Self {
         TeamValidator {
             team_name: team_name.to_string(),
             cache,
-            audience: audience.to_string(),
+            audiences: audiences,
         }
     }
 
     /// Initialises a TeamValidator from an existing TeamKeys struct
     /// and a provided audience string
-    pub fn from_team_keys(team_keys: api::TeamKeys, audience: &str) -> Self {
+    pub fn from_team_keys(team_keys: api::TeamKeys, audiences: Vec<String>) -> Self {
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Self::new(&team_keys.team_name, cache, audience)
+        Self::new(&team_keys.team_name, cache, audiences)
     }
 
     /// Atttempts to initialise a TeamValidator using a team name
     /// and an audience string. Keys are retrieved from the CF API.
-    pub fn from_team_name(team_name: &str, audience: &str) -> StdResult<Self> {
+    pub fn from_team_name(team_name: &str, audiences: Vec<String>) -> StdResult<Self> {
         let team_keys = api::TeamKeys::from_team_name(&team_name)?;
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Ok(Self::new(team_name, cache, audience))
+        Ok(Self::new(team_name, cache, audiences))
     }
 
     /// Attempts to syncronise the TeamValidator's cached keys with
@@ -131,7 +131,7 @@ impl Validator for TeamValidator {
 
         match self.cache.get_decoding_key(&key_id) {
             Some(key) => {
-                constraints.set_audience(&[&self.audience]);
+                constraints.set_audience(&self.audiences);
                 Ok(decode_token(token, &key, &constraints)?)
             }
             None => Err(ValidationError::no_kid_in_cache(&key_id)),
@@ -224,7 +224,7 @@ mod tests {
 
     fn get_team_validator() -> TeamValidator {
         let team_keys = TeamKeys::from_str(TEAM_NAME, STATIC_KEYS).unwrap();
-        TeamValidator::from_team_keys(team_keys, AUDIENCE)
+        TeamValidator::from_team_keys(team_keys, vec![AUDIENCE.to_string()])
     }
 
     fn get_multi_team_validator() -> MultiTeamValidator {

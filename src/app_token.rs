@@ -64,7 +64,7 @@ mod tests {
 
     fn get_validator() -> Box<dyn Validator> {
         let keys = TeamKeys::from_str(TEAM_NAME, SIGNING_KEYS_JSON).unwrap();
-        let validator = TeamValidator::from_team_keys(keys, AUDIENCE);
+        let validator = TeamValidator::from_team_keys(keys, vec![AUDIENCE.to_string()]);
         Box::new(validator)
     }
 

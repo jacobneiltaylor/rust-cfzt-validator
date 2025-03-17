@@ -1,0 +1,68 @@
+on: [push]
+
+name: 
+
+jobs:
+  test:
+    name: Build and run test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Run test suite
+        run: |
+          cargo test  -- -Z unstable-options --format json --report-time | tee results.json
+
+      - name: Prepare junit report
+        id: cargo_reporter 
+        uses:  innoq/action-cargo-test-report
+        with:
+          cargo-test-report-json: 'results.json'
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@main
+        if: always()
+        with:
+          check_name: Test Report
+          fail_on_failure: true
+          require_tests: true
+          summary: ${{ steps.cargo_reporter.outputs.summary }}
+
+      - name: Build release
+        run: |
+          cargo build --release --all-features
+
+  audit:
+    name: Audit project dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/audit@v1
+
+  publish:
+    name: Publish package to Crates.io
+    needs:
+      - test
+      - audit
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: katyo/publish-crates@v2
+        with:
+          registry-token: ${{ secrets.CRATES_IO_API_TOKEN }}
+          ignore-unpublished-changes: true
