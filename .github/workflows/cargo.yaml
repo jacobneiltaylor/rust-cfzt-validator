@@ -19,12 +19,6 @@ jobs:
         run: |
           cargo test  -- -Z unstable-options --format json --report-time | tee results.json
 
-      - name: Prepare junit report
-        id: cargo_reporter 
-        uses: innoq/action-cargo-test-report@latest
-        with:
-          cargo-test-report-json: 'results.json'
-
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@main
         if: always()
@@ -32,7 +26,6 @@ jobs:
           check_name: Test Report
           fail_on_failure: true
           require_tests: true
-          summary: ${{ steps.cargo_reporter.outputs.summary }}
 
       - name: Build release
         run: |
