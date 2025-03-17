@@ -1,6 +1,6 @@
 on: [push]
 
-name: 
+name: Test, audit, and publish Cargo crate
 
 jobs:
   test:
@@ -21,7 +21,7 @@ jobs:
 
       - name: Prepare junit report
         id: cargo_reporter 
-        uses:  innoq/action-cargo-test-report
+        uses: innoq/action-cargo-test-report@latest
         with:
           cargo-test-report-json: 'results.json'
 
