@@ -64,7 +64,7 @@ mod tests {
 
     fn get_validator() -> Box<dyn Validator> {
         let keys = TeamKeys::from_str(TEAM_NAME, SIGNING_KEYS_JSON).unwrap();
-        let validator = TeamValidator::from_team_keys(keys, vec![AUDIENCE.to_string()]);
+        let validator = TeamValidator::from_team_keys(keys);
         Box::new(validator)
     }
 
@@ -75,6 +75,7 @@ mod tests {
         let mut constraints = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
         constraints.validate_nbf = false;
         constraints.validate_exp = false;
+        constraints.set_audience(&[AUDIENCE]);
 
         let result = validator.validate_token(APPLICATION_TOKEN_JWT, TEAM_NAME, &mut constraints);
         assert!(result.is_ok());
