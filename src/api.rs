@@ -50,15 +50,15 @@ fn get_team_key_uri(team_name: &str) -> String {
     format!("https://{team_name}.cloudflareaccess.com/cdn-cgi/access/certs")
 }
 
-fn get_json_payload(uri: &str) -> Result<Value, ureq::Error> {
-    let payload = ureq::get(uri).call()?.into_json::<Value>()?;
+fn get_json_payload(uri: &str, agent: &ureq::Agent) -> Result<Value, ureq::Error> {
+    let payload = agent.get(uri).call()?.body_mut().read_json::<Value>()?;
 
     Ok(payload)
 }
 
-fn get_team_keys(team_name: &str) -> StdResult<(String, keys::AccessKeyMap)> {
+fn get_team_keys(team_name: &str, agent: &ureq::Agent) -> StdResult<(String, keys::AccessKeyMap)> {
     let uri = get_team_key_uri(team_name);
-    let payload = get_json_payload(&uri)?;
+    let payload = get_json_payload(&uri, agent)?;
     Ok((
         extract_latest_key_id(&payload)?,
         extract_current_keys(&payload)?,
@@ -82,8 +82,8 @@ impl TeamKeys {
     }
 
     /// Attempts to load signing keys for a given team using a HTTP request.
-    pub fn from_team_name(team_name: &str) -> StdResult<Self> {
-        let (latest_key_id, keys) = get_team_keys(team_name)?;
+    pub fn from_team_name(team_name: &str, agent: &ureq::Agent) -> StdResult<Self> {
+        let (latest_key_id, keys) = get_team_keys(team_name, agent)?;
         Ok(TeamKeys::new(team_name, &latest_key_id, keys))
     }
 
@@ -162,7 +162,8 @@ mod tests {
 
     #[test]
     fn test_get_team_keys() {
-        let result = get_team_keys(TEST_TEAM);
+        let agent = ureq::agent();
+        let result = get_team_keys(TEST_TEAM, &agent);
         assert!(result.is_ok());
     }
 }

@@ -63,8 +63,9 @@ mod tests {
     const SIGNING_KEYS_JSON: &str = include_str!("../test_data/sample_signing_keys.json");
 
     fn get_validator() -> Box<dyn Validator> {
+        let agent = ureq::agent();
         let keys = TeamKeys::from_str(TEAM_NAME, SIGNING_KEYS_JSON).unwrap();
-        let validator = TeamValidator::from_team_keys(keys);
+        let validator = TeamValidator::from_team_keys(keys, agent);
         Box::new(validator)
     }
 
