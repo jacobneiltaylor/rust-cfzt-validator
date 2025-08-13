@@ -66,35 +66,32 @@ pub trait Validator: Sync + Send {
 pub struct TeamValidator {
     pub(crate) team_name: String,
     cache: cache::Cache,
-    audience: String,
     agent: ureq::Agent,
 }
 
 
 impl TeamValidator {
-    /// Initialises a TeamValidator from a team name, Cache struct, an audience, and a ureq Agent.
-    pub fn new(team_name: &str, cache: Cache, audience: &str, agent: ureq::Agent) -> Self {
+    /// Initialises a TeamValidator from a team name, Cache struct, and a ureq Agent.
+    pub fn new(team_name: &str, cache: Cache, agent: ureq::Agent) -> Self {
         TeamValidator {
             team_name: team_name.to_string(),
             cache,
-            audience: audience.to_string(),
             agent,
         }
     }
 
-    /// Initialises a TeamValidator from an existing TeamKeys struct
-    /// and a provided audience string
-    pub fn from_team_keys(team_keys: api::TeamKeys, audience: &str, agent: ureq::Agent) -> Self {
+    /// Initialises a TeamValidator from an existing TeamKeys struct and a ureq Agent.
+    pub fn from_team_keys(team_keys: api::TeamKeys, agent: ureq::Agent) -> Self {
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Self::new(&team_keys.team_name, cache, audience, agent)
+        Self::new(&team_keys.team_name, cache, agent)
     }
 
-    /// Atttempts to initialise a TeamValidator using a team name
-    /// and an audience string. Keys are retrieved from the CF API.
-    pub fn from_team_name(team_name: &str, audience: &str, agent: ureq::Agent) -> StdResult<Self> {
+    /// Atttempts to initialise a TeamValidator using a team name and a ureq Agent.
+    /// Keys are retrieved from the CF API.
+    pub fn from_team_name(team_name: &str, agent: ureq::Agent) -> StdResult<Self> {
         let team_keys = api::TeamKeys::from_team_name(&team_name, &agent)?;
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Ok(Self::new(team_name, cache, audience, agent))
+        Ok(Self::new(team_name, cache, agent))
     }
 
     /// Attempts to syncronise the TeamValidator's cached keys with
@@ -133,7 +130,6 @@ impl Validator for TeamValidator {
 
         match self.cache.get_decoding_key(&key_id) {
             Some(key) => {
-                constraints.set_audience(&[&self.audience]);
                 Ok(decode_token(token, &key, &constraints)?)
             }
             None => Err(ValidationError::no_kid_in_cache(&key_id)),
@@ -227,7 +223,7 @@ mod tests {
     fn get_team_validator() -> TeamValidator {
         let agent = ureq::agent();
         let team_keys = TeamKeys::from_str(TEAM_NAME, STATIC_KEYS).unwrap();
-        TeamValidator::from_team_keys(team_keys, AUDIENCE, agent)
+        TeamValidator::from_team_keys(team_keys, agent)
     }
 
     fn get_multi_team_validator() -> MultiTeamValidator {
@@ -240,6 +236,7 @@ mod tests {
         let mut constraints = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
         constraints.validate_nbf = false;
         constraints.validate_exp = false;
+        constraints.set_audience(&[AUDIENCE]);
         constraints
     }
 
