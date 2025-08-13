@@ -67,32 +67,34 @@ pub struct TeamValidator {
     pub(crate) team_name: String,
     cache: cache::Cache,
     audience: String,
+    agent: ureq::Agent,
 }
 
 
 impl TeamValidator {
-    /// Initialises a TeamValidator from a team name, Cache struct and an audience.
-    pub fn new(team_name: &str, cache: Cache, audience: &str) -> Self {
+    /// Initialises a TeamValidator from a team name, Cache struct, an audience, and a ureq Agent.
+    pub fn new(team_name: &str, cache: Cache, audience: &str, agent: ureq::Agent) -> Self {
         TeamValidator {
             team_name: team_name.to_string(),
             cache,
             audience: audience.to_string(),
+            agent,
         }
     }
 
     /// Initialises a TeamValidator from an existing TeamKeys struct
     /// and a provided audience string
-    pub fn from_team_keys(team_keys: api::TeamKeys, audience: &str) -> Self {
+    pub fn from_team_keys(team_keys: api::TeamKeys, audience: &str, agent: ureq::Agent) -> Self {
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Self::new(&team_keys.team_name, cache, audience)
+        Self::new(&team_keys.team_name, cache, audience, agent)
     }
 
     /// Atttempts to initialise a TeamValidator using a team name
     /// and an audience string. Keys are retrieved from the CF API.
-    pub fn from_team_name(team_name: &str, audience: &str) -> StdResult<Self> {
-        let team_keys = api::TeamKeys::from_team_name(&team_name)?;
+    pub fn from_team_name(team_name: &str, audience: &str, agent: ureq::Agent) -> StdResult<Self> {
+        let team_keys = api::TeamKeys::from_team_name(&team_name, &agent)?;
         let cache = cache::Cache::new(&team_keys.latest_key_id, team_keys.keys);
-        Ok(Self::new(team_name, cache, audience))
+        Ok(Self::new(team_name, cache, audience, agent))
     }
 
     /// Attempts to syncronise the TeamValidator's cached keys with
@@ -142,7 +144,7 @@ impl Validator for TeamValidator {
     /// those available via the Cloudflare API. Returns a wrapped bool signalling
     /// if an update was necessary.
     fn sync(&self) -> StdResult<bool> {
-        let team_keys = api::TeamKeys::from_team_name(&self.team_name)?;
+        let team_keys = api::TeamKeys::from_team_name(&self.team_name, &self.agent)?;
         Ok(self.update_keys(team_keys))
     }
 }
@@ -223,8 +225,9 @@ mod tests {
     const JWT: &str = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImE1ZWE4YmQxYjk0Y2FkZjJhNWYwZjQ3ZGFkMTg4ZTZhYWZiY2QyOGVlYWIyZTcxYjExZGRkOTZkOWNjMjhjNjkifQ.eyJhdWQiOlsiNDFmMWQ4NzljNzk3ZDkxMmQ5YmQ4MDcxMGRiM2RjZTkyZDMwNjAyYTJkY2JkZjdiYWIzMzkxMzA3MWM0NGJkNCJdLCJlbWFpbCI6Im1lQGphY29idGF5bG9yLmlkLmF1IiwiZXhwIjoxNzE3OTgxNDM5LCJpYXQiOjE3MTc5Nzk2MzksIm5iZiI6MTcxNzk3OTYzOSwiaXNzIjoiaHR0cHM6Ly9tb2x0ZW4uY2xvdWRmbGFyZWFjY2Vzcy5jb20iLCJ0eXBlIjoiYXBwIiwiaWRlbnRpdHlfbm9uY2UiOiJBUFhHRnFsT2k5OVNsVVF3Iiwic3ViIjoiNzIwOGVlYTQtNDA5OC01YTMxLTkwNTMtZjA5YjgxYzI4MWZkIiwiY3VzdG9tIjp7ImVtYWlsIjoiIn0sImNvdW50cnkiOiJBVSJ9.nwTTyb2ioh5Fw39zKyBMZJuj0wzxOuP2KxsbzDLQCmOBNekTvhmquAui3bmuwpzhTTfjxP9yAJG1_N0Hmc-h613E8jOQclqAVgr9_JEYPZ2v58exPRgjeokEIQweRYKgLgoqHAqaYTKQ4v8-pHeRL66L-2Ui3uVUi8V8PkeJogKfPHvFjnkCqZPFFpuxkW735x0Vxq5CzQesoHH37hLAJe7ckc4Jav1AholNsLOvlBIxZtC9ET8-3YqO5rOUCqSX_6oKmf0VyOmqzbSw4gaXvnaTBAPiGruU63gg_LsV0NVGeVvddy84Tl3WvQvbPwdCJ9W9KsbkyOryfgbL0lrZPA";
 
     fn get_team_validator() -> TeamValidator {
+        let agent = ureq::agent();
         let team_keys = TeamKeys::from_str(TEAM_NAME, STATIC_KEYS).unwrap();
-        TeamValidator::from_team_keys(team_keys, AUDIENCE)
+        TeamValidator::from_team_keys(team_keys, AUDIENCE, agent)
     }
 
     fn get_multi_team_validator() -> MultiTeamValidator {
